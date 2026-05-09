@@ -4,6 +4,7 @@ import { useUserStore } from '@/stores/userStore';
 import { useRecordStore } from '@/stores/recordStore';
 import { useClusterStore } from '@/stores/clusterStore';
 import { exportAllData, importData, clearAllData } from '@/utils/storage';
+import { getApiKey, setApiKey, hasApiKey } from '@/utils/ai';
 
 const userStore = useUserStore();
 const recordStore = useRecordStore();
@@ -14,6 +15,8 @@ const showAddCategory = ref(false);
 const showClearConfirm = ref(false);
 const isExporting = ref(false);
 const isImporting = ref(false);
+const apiKeyInput = ref(getApiKey() || '');
+const showApiKeyInput = ref(false);
 
 function addCategory() {
   const name = newCategoryName.value.trim();
@@ -76,6 +79,21 @@ async function handleImport() {
 function handleClearData() {
   clearAllData();
   window.location.reload();
+}
+
+function saveApiKey() {
+  const key = apiKeyInput.value.trim();
+  if (key) {
+    setApiKey(key);
+    showApiKeyInput.value = false;
+    alert('API Key 已保存');
+  }
+}
+
+function clearApiKey() {
+  apiKeyInput.value = '';
+  localStorage.removeItem('worktime_api_key');
+  alert('API Key 已清除');
 }
 
 onMounted(() => {
@@ -147,6 +165,76 @@ onMounted(() => {
               取消
             </button>
           </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="mb-6">
+      <h3 class="section-title">AI 服务配置</h3>
+
+      <div class="card p-4">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center flex-shrink-0">
+            <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <div class="flex-1">
+            <div class="font-medium text-gray-900 mb-1">硅基流动 API Key</div>
+            <div class="text-sm text-gray-500">
+              {{ hasApiKey() ? '已配置 API Key，可正常使用 AI 分析功能' : '未配置 API Key，使用基础分析模式' }}
+            </div>
+          </div>
+        </div>
+
+        <div v-if="!showApiKeyInput">
+          <button
+            @click="showApiKeyInput = true"
+            class="w-full btn btn-secondary py-2"
+          >
+            {{ hasApiKey() ? '修改 API Key' : '配置 API Key' }}
+          </button>
+        </div>
+
+        <div v-else class="space-y-3">
+          <input
+            v-model="apiKeyInput"
+            type="password"
+            class="input"
+            placeholder="输入您的硅基流动 API Key"
+          />
+          <div class="flex gap-2">
+            <button
+              @click="saveApiKey"
+              :disabled="!apiKeyInput.trim()"
+              class="flex-1 btn btn-primary py-2"
+            >
+              保存
+            </button>
+            <button
+              @click="showApiKeyInput = false"
+              class="flex-1 btn btn-secondary py-2"
+            >
+              取消
+            </button>
+          </div>
+          <button
+            v-if="hasApiKey()"
+            @click="clearApiKey"
+            class="w-full text-sm text-red-500 hover:text-red-600"
+          >
+            清除已保存的 API Key
+          </button>
+        </div>
+
+        <div class="mt-4 p-3 bg-gray-50 rounded-lg">
+          <p class="text-xs text-gray-500">
+            <strong>如何获取 API Key：</strong><br />
+            1. 访问 <a href="https://account.siliconflow.cn" target="_blank" class="text-primary hover:underline">硅基流动官网</a><br />
+            2. 注册/登录账号<br />
+            3. 在个人中心获取 API Key<br />
+            4. 粘贴到上方输入框中保存
+          </p>
         </div>
       </div>
     </div>

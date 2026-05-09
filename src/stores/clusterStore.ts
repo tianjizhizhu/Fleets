@@ -1,9 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
 import type { Cluster, ClusterStats, WorkRecord, WorkCategory, CategoryStat, DailyStat } from '@/types';
-import { getAllClusters, saveCluster, deleteCluster as deleteFromDB } from '@/utils/storage';
-import { runClustering } from '@/utils/ai';
-import { formatDateShort, isSameDay } from '@/utils/time';
+import { getAllClusters, saveCluster, deleteCluster as deleteFromDB, generateId } from '@/utils/storage';
+import { clusterWorkRecords } from '@/utils/ai';
+import { formatDateShort } from '@/utils/time';
 
 export const useClusterStore = defineStore('cluster', () => {
   const clusters = ref<Cluster[]>([]);
@@ -32,7 +32,25 @@ export const useClusterStore = defineStore('cluster', () => {
   async function runClusterAnalysis(records: WorkRecord[], categories: WorkCategory[]) {
     isLoading.value = true;
     try {
-      const newClusters = runClustering(records, categories);
+      const confirmedRecords = records
+        .filter(r => r.annotationStatus === 'confirmed')
+        .map(r => ({
+          summary: r.summary,
+          categoryId: r.categoryId || '',
+          duration: r.duration
+        }));
+
+      const aiClusters = await clusterWorkRecords(confirmedRecords, categories);
+
+      const newClusters: Cluster[] = aiClusters.map(c => ({
+        id: generateId(),
+        categoryId: c.categoryId,
+        name: c.name,
+        recordIds: c.recordIndices.map(i => records[i]?.id || '').filter(Boolean),
+        totalDuration: c.totalDuration,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }));
 
       await Promise.all([
         ...clusters.value.map(c => deleteFromDB(c.id)),

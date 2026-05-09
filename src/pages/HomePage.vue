@@ -3,10 +3,10 @@ import { ref, computed, watch, onMounted } from 'vue';
 import { useUserStore } from '@/stores/userStore';
 import { useRecordStore } from '@/stores/recordStore';
 import { useAudioRecorder } from '@/composables/useAudioRecorder';
-import { analyzeText } from '@/utils/ai';
+import { analyzeWorkText, type AnalysisResult } from '@/utils/ai';
 import { generateId } from '@/utils/storage';
 import { formatRecordingTime, formatTime, formatDuration } from '@/utils/time';
-import type { WorkRecord, AIAnalysisResult } from '@/types';
+import type { WorkRecord } from '@/types';
 import RecordButton from '@/components/record/RecordButton.vue';
 import RecordCard from '@/components/record/RecordCard.vue';
 import TranscriptView from '@/components/record/TranscriptView.vue';
@@ -16,6 +16,7 @@ const recordStore = useRecordStore();
 
 const {
   state,
+  permissionError,
   transcript,
   startRecording,
   stopRecording,
@@ -23,8 +24,10 @@ const {
   resetState
 } = useAudioRecorder();
 
+const inputMode = ref<'voice' | 'keyboard'>('voice');
+const manualInputText = ref('');
 const generatedRecord = ref<WorkRecord | null>(null);
-const analysisResult = ref<AIAnalysisResult | null>(null);
+const analysisResult = ref<AnalysisResult | null>(null);
 const isAnalyzing = ref(false);
 const showEditModal = ref(false);
 
@@ -34,6 +37,9 @@ const editForm = ref({
   summary: '',
   categoryId: null as string | null
 });
+
+const showNewCategoryPrompt = ref(false);
+const pendingNewCategoryName = ref('');
 
 const displayTranscript = computed(() => {
   if (state.value.status === 'recording' || state.value.transcript) {
@@ -64,17 +70,55 @@ async function handleStopRecording() {
   state.value.status = 'processing';
 
   try {
-    const result = await analyzeText(finalTranscript || transcript.value, userStore.categories);
+    const result = await analyzeWorkText(finalTranscript || transcript.value, userStore.categories);
     analysisResult.value = result;
+    console.log('AI分析结果:', result);
 
-    editForm.value = {
-      startTime: formatTime(result.startTime),
-      endTime: formatTime(result.endTime),
-      summary: result.summary,
-      categoryId: result.suggestedCategoryId
-    };
+    if (result.suggestedNewCategory && result.suggestedNewCategory.trim()) {
+      pendingNewCategoryName.value = result.suggestedNewCategory.trim();
+      showNewCategoryPrompt.value = true;
+      state.value.status = 'done';
+    } else {
+      editForm.value = {
+        startTime: formatTime(result.startTime),
+        endTime: formatTime(result.endTime),
+        summary: result.summary,
+        categoryId: result.suggestedCategoryId
+      };
+      state.value.status = 'done';
+    }
+  } catch (error) {
+    console.error('Analysis failed:', error);
+    state.value.status = 'error';
+  } finally {
+    isAnalyzing.value = false;
+  }
+}
 
-    state.value.status = 'done';
+async function handleManualSubmit() {
+  if (!manualInputText.value.trim()) return;
+
+  isAnalyzing.value = true;
+  state.value.status = 'processing';
+
+  try {
+    const result = await analyzeWorkText(manualInputText.value, userStore.categories);
+    analysisResult.value = result;
+    console.log('AI分析结果:', result);
+
+    if (result.suggestedNewCategory && result.suggestedNewCategory.trim()) {
+      pendingNewCategoryName.value = result.suggestedNewCategory.trim();
+      showNewCategoryPrompt.value = true;
+      state.value.status = 'done';
+    } else {
+      editForm.value = {
+        startTime: formatTime(result.startTime),
+        endTime: formatTime(result.endTime),
+        summary: result.summary,
+        categoryId: result.suggestedCategoryId
+      };
+      state.value.status = 'done';
+    }
   } catch (error) {
     console.error('Analysis failed:', error);
     state.value.status = 'error';
@@ -87,7 +131,42 @@ function handleCancel() {
   cancelRecording();
   generatedRecord.value = null;
   analysisResult.value = null;
+  manualInputText.value = '';
+  showNewCategoryPrompt.value = false;
+  pendingNewCategoryName.value = '';
   resetState();
+}
+
+function confirmNewCategory() {
+  if (pendingNewCategoryName.value && analysisResult.value) {
+    userStore.addCategory(pendingNewCategoryName.value);
+    const newCategory = userStore.categories.find(c => c.name === pendingNewCategoryName.value);
+    if (newCategory) {
+      editForm.value = {
+        startTime: formatTime(analysisResult.value.startTime),
+        endTime: formatTime(analysisResult.value.endTime),
+        summary: analysisResult.value.summary,
+        categoryId: newCategory.id
+      };
+    }
+  }
+  showNewCategoryPrompt.value = false;
+  pendingNewCategoryName.value = '';
+  state.value.status = 'done';
+}
+
+function rejectNewCategory() {
+  showNewCategoryPrompt.value = false;
+  pendingNewCategoryName.value = '';
+  if (analysisResult.value) {
+    editForm.value = {
+      startTime: formatTime(analysisResult.value.startTime),
+      endTime: formatTime(analysisResult.value.endTime),
+      summary: analysisResult.value.summary,
+      categoryId: null
+    };
+  }
+  state.value.status = 'done';
 }
 
 function openEditModal() {
@@ -114,7 +193,7 @@ async function confirmRecord() {
     startTime: startDate.toISOString(),
     endTime: endDate.toISOString(),
     duration: analysisResult.value.duration,
-    rawText: transcript.value || state.value.transcript,
+    rawText: inputMode.value === 'voice' ? (transcript.value || state.value.transcript) : manualInputText.value,
     summary: analysisResult.value.summary,
     categoryId: editForm.value.categoryId,
     clusterId: null,
@@ -136,6 +215,7 @@ async function confirmRecord() {
   );
 
   generatedRecord.value = record;
+  manualInputText.value = '';
   resetState();
   state.value.status = 'done';
 
@@ -184,45 +264,168 @@ onMounted(() => {
 <template>
   <div class="page-content py-6">
     <div class="flex flex-col items-center">
-      <RecordButton
-        :status="state.status"
-        :is-recording="state.isRecording"
-        :duration="state.duration"
-        :audio-level="state.audioLevel"
-        @start="handleStartRecording"
-        @stop="handleStopRecording"
-      />
+      <div class="w-full max-w-sm mx-auto">
+        <div class="flex gap-2 p-1 bg-gray-100 rounded-lg mb-6">
+          <button
+            @click="inputMode = 'voice'"
+            :class="[
+              'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all',
+              inputMode === 'voice'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+          >
+            <span class="flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
+              语音输入
+            </span>
+          </button>
+          <button
+            @click="inputMode = 'keyboard'"
+            :class="[
+              'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all',
+              inputMode === 'keyboard'
+                ? 'bg-white text-primary shadow-sm'
+                : 'text-gray-500 hover:text-gray-700'
+            ]"
+          >
+            <span class="flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              键盘输入
+            </span>
+          </button>
+        </div>
 
-      <div class="mt-8 text-center">
-        <p class="text-sm text-gray-500">
-          <template v-if="state.status === 'idle'">
-            点击按钮开始录音
-          </template>
-          <template v-else-if="state.status === 'recording'">
-            录音中 · {{ formatRecordingTime(state.duration) }}
-          </template>
-          <template v-else-if="state.status === 'processing'">
-            AI 分析中...
-          </template>
-          <template v-else-if="state.status === 'done'">
-            记录已保存
-          </template>
-          <template v-else-if="state.status === 'error'">
-            发生错误，请重试
-          </template>
-        </p>
+        <template v-if="inputMode === 'voice'">
+          <RecordButton
+            :status="state.status"
+            :is-recording="state.isRecording"
+            :duration="state.duration"
+            :audio-level="state.audioLevel"
+            @start="handleStartRecording"
+            @stop="handleStopRecording"
+          />
+
+          <div class="mt-8 text-center">
+            <p class="text-sm text-gray-500">
+              <template v-if="state.status === 'idle'">
+                点击按钮开始录音
+              </template>
+              <template v-else-if="state.status === 'recording'">
+                录音中 · {{ formatRecordingTime(state.duration) }}
+              </template>
+              <template v-else-if="state.status === 'processing'">
+                AI 分析中...
+              </template>
+              <template v-else-if="state.status === 'done'">
+                记录已保存
+              </template>
+              <template v-else-if="state.status === 'error'">
+                发生错误，请重试
+              </template>
+            </p>
+          </div>
+
+          <TranscriptView
+            v-if="state.status === 'recording' || state.status === 'done'"
+            :transcript="displayTranscript"
+            :is-recording="state.isRecording"
+            class="mt-6"
+          />
+        </template>
+
+        <template v-else>
+          <div class="space-y-4">
+            <div>
+              <label class="block text-sm font-medium text-gray-700 mb-2">
+                输入工作内容
+              </label>
+              <textarea
+                v-model="manualInputText"
+                :disabled="state.status === 'processing'"
+                class="input min-h-[120px] resize-none"
+                placeholder="例如：从上午9点到11点在做清洁机器人项目"
+              />
+            </div>
+
+            <div class="flex gap-3">
+              <button
+                v-if="state.status !== 'idle'"
+                @click="handleCancel"
+                class="flex-1 btn btn-secondary py-3"
+              >
+                取消
+              </button>
+              <button
+                @click="handleManualSubmit"
+                :disabled="!manualInputText.trim() || state.status === 'processing'"
+                :class="[
+                  'flex-1 btn py-3',
+                  manualInputText.trim() && state.status !== 'processing'
+                    ? 'btn-primary'
+                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                ]"
+              >
+                {{ state.status === 'processing' ? '分析中...' : '提交' }}
+              </button>
+            </div>
+          </div>
+        </template>
       </div>
 
-      <TranscriptView
-        v-if="state.status === 'recording' || state.status === 'done'"
-        :transcript="displayTranscript"
-        :is-recording="state.isRecording"
-        class="mt-6 w-full"
-      />
+      <Teleport to="body">
+        <Transition name="modal">
+          <div
+            v-if="showNewCategoryPrompt"
+            class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          >
+            <div
+              class="absolute inset-0 bg-black/50 backdrop-blur-sm"
+              @click="rejectNewCategory"
+            />
+            <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden animate-scale-in">
+              <div class="p-6">
+                <div class="text-center mb-6">
+                  <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+                    <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                  </div>
+                  <h3 class="text-lg font-semibold text-gray-900 mb-2">
+                    检测到新工作类型
+                  </h3>
+                  <p class="text-sm text-gray-500">
+                    您提到的工作 "<span class="font-medium text-primary">{{ pendingNewCategoryName }}</span>" 似乎是一个新的工作类别
+                  </p>
+                </div>
+
+                <div class="space-y-3">
+                  <button
+                    @click="confirmNewCategory"
+                    class="w-full btn btn-primary py-3"
+                  >
+                    是，创建"{{ pendingNewCategoryName }}"类别
+                  </button>
+                  <button
+                    @click="rejectNewCategory"
+                    class="w-full btn btn-secondary py-3"
+                  >
+                    不是，保持待标注
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </Transition>
+      </Teleport>
 
       <div
         v-if="state.status === 'done' && analysisResult && !generatedRecord"
-        class="mt-6 w-full space-y-4 animate-slide-up"
+        class="mt-6 w-full max-w-sm mx-auto space-y-4 animate-slide-up"
       >
         <RecordCard
           :record="{
@@ -263,7 +466,7 @@ onMounted(() => {
 
       <div
         v-if="generatedRecord"
-        class="mt-6 w-full animate-slide-up"
+        class="mt-6 w-full max-w-sm mx-auto animate-slide-up"
       >
         <div class="card p-4 bg-green-50 border-green-200">
           <div class="flex items-center gap-3">
@@ -282,18 +485,18 @@ onMounted(() => {
 
       <div
         v-if="state.status === 'error'"
-        class="mt-6 w-full animate-slide-up"
+        class="mt-6 w-full max-w-sm mx-auto animate-slide-up"
       >
         <div class="card p-4 bg-red-50 border-red-200">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
               <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
               </svg>
             </div>
-            <div>
-              <p class="font-medium text-red-800">录音失败</p>
-              <p class="text-sm text-red-600">请检查麦克风权限后重试</p>
+            <div class="flex-1">
+              <p class="font-medium text-red-800 mb-1">录音失败</p>
+              <p class="text-sm text-red-600">{{ permissionError || '请检查麦克风权限后重试' }}</p>
             </div>
           </div>
         </div>

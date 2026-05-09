@@ -103,17 +103,30 @@ export function useAudioRecorder() {
     status: 'idle'
   });
 
+  const permissionError = ref<string | null>(null);
+
   let mediaRecorder: MediaRecorder | null = null;
   let audioChunks: Blob[] = [];
   let timer: number | null = null;
   let analyser: AnalyserNode | null = null;
   let audioContext: AudioContext | null = null;
+  let mediaStream: MediaStream | null = null;
 
   const { transcript, isRecognizing, startRecognition, stopRecognition, abortRecognition } = useSpeechRecognition();
 
   async function startRecording() {
+    permissionError.value = null;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
+      mediaStream = stream;
 
       audioContext = new AudioContext();
       analyser = audioContext.createAnalyser();
@@ -153,10 +166,29 @@ export function useAudioRecorder() {
         }
       }, 1000);
 
-    } catch (e) {
-      state.value.status = 'error';
+    } catch (e: any) {
+      console.error('Recording error:', e);
+
+      let errorMessage = '录音启动失败';
+
+      if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+        errorMessage = '麦克风权限被拒绝，请在浏览器设置中允许使用麦克风';
+      } else if (e.name === 'NotFoundError' || e.name === 'DevicesNotFoundError') {
+        errorMessage = '未找到麦克风设备，请连接麦克风后重试';
+      } else if (e.name === 'NotReadableError' || e.name === 'TrackStartError') {
+        errorMessage = '麦克风被其他应用占用，请关闭其他使用麦克风的程序';
+      } else if (e.name === 'SecurityError' || e.name === 'NotSupportedError') {
+        errorMessage = '浏览器不支持录音功能，请使用 Chrome、Edge 或 Safari 浏览器';
+      } else {
+        errorMessage = `录音失败: ${e.message || '未知错误'}`;
+      }
+
+      permissionError.value = errorMessage;
       state.value = {
-        ...state.value,
+        isRecording: false,
+        duration: 0,
+        audioLevel: 0,
+        transcript: '',
         status: 'error'
       };
     }
@@ -164,7 +196,7 @@ export function useAudioRecorder() {
 
   async function stopRecording(): Promise<{ audioBlob: Blob | null; transcript: string }> {
     return new Promise((resolve) => {
-      if (!mediaRecorder) {
+      if (!mediaRecorder || mediaRecorder.state === 'inactive') {
         resolve({ audioBlob: null, transcript: transcript.value });
         return;
       }
@@ -201,16 +233,27 @@ export function useAudioRecorder() {
 
       try {
         mediaRecorder.stop();
-        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        if (mediaStream) {
+          mediaStream.getTracks().forEach(track => track.stop());
+          mediaStream = null;
+        }
       } catch (e) {
+        console.error('Stop recording error:', e);
       }
     });
   }
 
   function cancelRecording() {
     if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-      mediaRecorder.stop();
-      mediaRecorder.stream.getTracks().forEach(track => track.stop());
+      try {
+        mediaRecorder.stop();
+      } catch (e) {
+      }
+    }
+
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop());
+      mediaStream = null;
     }
 
     abortRecognition();
@@ -235,6 +278,7 @@ export function useAudioRecorder() {
   }
 
   function resetState() {
+    permissionError.value = null;
     state.value = {
       isRecording: false,
       duration: 0,
@@ -250,6 +294,7 @@ export function useAudioRecorder() {
 
   return {
     state,
+    permissionError,
     transcript,
     isRecognizing,
     startRecording,
