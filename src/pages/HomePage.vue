@@ -1,35 +1,22 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useUserStore } from '@/stores/userStore';
 import { useRecordStore } from '@/stores/recordStore';
-import { useAudioRecorder } from '@/composables/useAudioRecorder';
 import { analyzeWorkText, type AnalysisResult } from '@/utils/ai';
 import { generateId } from '@/utils/storage';
-import { formatRecordingTime, formatTime, formatDuration } from '@/utils/time';
+import { formatTime, formatDuration } from '@/utils/time';
 import type { WorkRecord, WorkMode } from '@/types';
-import RecordButton from '@/components/record/RecordButton.vue';
 import RecordCard from '@/components/record/RecordCard.vue';
-import TranscriptView from '@/components/record/TranscriptView.vue';
 
 const userStore = useUserStore();
 const recordStore = useRecordStore();
 
-const {
-  state,
-  permissionError,
-  transcript,
-  startRecording,
-  stopRecording,
-  cancelRecording,
-  resetState
-} = useAudioRecorder();
-
-const inputMode = ref<'voice' | 'keyboard'>('voice');
 const manualInputText = ref('');
 const generatedRecord = ref<WorkRecord | null>(null);
 const analysisResult = ref<AnalysisResult | null>(null);
 const isAnalyzing = ref(false);
 const showEditModal = ref(false);
+const showConfirmModal = ref(false);
 
 const editForm = ref({
   startTime: '',
@@ -42,58 +29,76 @@ const editForm = ref({
 const showNewCategoryPrompt = ref(false);
 const pendingNewCategoryName = ref('');
 
-const displayTranscript = computed(() => {
-  if (state.value.status === 'recording' || state.value.transcript) {
-    return state.value.transcript || transcript.value;
-  }
-  return '';
+const todayRecords = computed(() => {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return recordStore.records.filter(r => {
+    const recordDate = new Date(r.startTime);
+    recordDate.setHours(0, 0, 0, 0);
+    return recordDate.getTime() === today.getTime();
+  });
 });
 
-watch(() => transcript.value, (newVal) => {
-  if (newVal && state.value.status === 'recording') {
-    state.value.transcript = newVal;
-  }
+const todayTotalMinutes = computed(() => {
+  return todayRecords.value.reduce((sum, r) => sum + r.duration, 0);
 });
 
-async function handleStartRecording() {
-  await startRecording();
+const todayCategoryStats = computed(() => {
+  const stats: Record<string, number> = {};
+  todayRecords.value.forEach(r => {
+    if (r.categoryId) {
+      stats[r.categoryId] = (stats[r.categoryId] || 0) + r.duration;
+    }
+  });
+  return stats;
+});
+
+function getTodayDateDisplay() {
+  const today = new Date();
+  const weekdays = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+  return `${today.getMonth() + 1}月${today.getDate()}日 ${weekdays[today.getDay()]}`;
 }
 
-async function handleStopRecording() {
-  const { transcript: finalTranscript } = await stopRecording();
+async function performAnalysis(inputText: string) {
+  const activeCategories = userStore.categories.filter(c => !c.isCompleted);
+  const result = await analyzeWorkText(inputText, activeCategories);
+  analysisResult.value = result;
+  console.log('AI分析结果:', result);
+  console.log('suggestedNewCategory:', result.suggestedNewCategory);
+  console.log('suggestedCategoryId:', result.suggestedCategoryId);
+  console.log('activeCategories:', activeCategories);
 
-  if (!finalTranscript && !transcript.value) {
-    resetState();
-    return;
-  }
-
-  isAnalyzing.value = true;
-  state.value.status = 'processing';
-
-  try {
-    const result = await analyzeWorkText(finalTranscript || transcript.value, userStore.categories);
-    analysisResult.value = result;
-    console.log('AI分析结果:', result);
-
-    if (result.suggestedNewCategory && result.suggestedNewCategory.trim()) {
-      pendingNewCategoryName.value = result.suggestedNewCategory.trim();
-      showNewCategoryPrompt.value = true;
-      state.value.status = 'done';
-    } else {
-      editForm.value = {
-        startTime: formatTime(result.startTime),
-        endTime: formatTime(result.endTime),
-        summary: result.summary,
-        categoryId: result.suggestedCategoryId,
-        workMode: result.workMode
-      };
-      state.value.status = 'done';
-    }
-  } catch (error) {
-    console.error('Analysis failed:', error);
-    state.value.status = 'error';
-  } finally {
-    isAnalyzing.value = false;
+  // 如果有建议的新项目名称，或者没有匹配到任何已有项目，就尝试让用户选择
+  if (result.suggestedNewCategory && result.suggestedNewCategory.trim()) {
+    console.log('显示新项目提示框');
+    pendingNewCategoryName.value = result.suggestedNewCategory.trim();
+    showNewCategoryPrompt.value = true;
+  } else if (!result.suggestedCategoryId && activeCategories.length > 0) {
+    // 没有匹配到项目，但用户有项目，也可以让用户选择是否要建新项
+    console.log('没有匹配到已有项目，直接显示确认框');
+    editForm.value = {
+      startTime: formatTime(result.startTime),
+      endTime: formatTime(result.endTime),
+      summary: result.summary,
+      categoryId: null,
+      workMode: result.workMode
+    };
+    showConfirmModal.value = true;
+  } else if (activeCategories.length === 0) {
+    // 用户没有任何项目，必须创建新项目
+    console.log('用户没有任何项目，显示新项目提示框，用摘要作为默认名称');
+    pendingNewCategoryName.value = result.summary.substring(0, 15);
+    showNewCategoryPrompt.value = true;
+  } else {
+    console.log('显示普通确认框');
+    editForm.value = {
+      startTime: formatTime(result.startTime),
+      endTime: formatTime(result.endTime),
+      summary: result.summary,
+      categoryId: result.suggestedCategoryId,
+      workMode: result.workMode
+    };
+    showConfirmModal.value = true;
   }
 }
 
@@ -101,43 +106,44 @@ async function handleManualSubmit() {
   if (!manualInputText.value.trim()) return;
 
   isAnalyzing.value = true;
-  state.value.status = 'processing';
 
   try {
-    const result = await analyzeWorkText(manualInputText.value, userStore.categories);
-    analysisResult.value = result;
-    console.log('AI分析结果:', result);
-
-    if (result.suggestedNewCategory && result.suggestedNewCategory.trim()) {
-      pendingNewCategoryName.value = result.suggestedNewCategory.trim();
-      showNewCategoryPrompt.value = true;
-      state.value.status = 'done';
-    } else {
-      editForm.value = {
-        startTime: formatTime(result.startTime),
-        endTime: formatTime(result.endTime),
-        summary: result.summary,
-        categoryId: result.suggestedCategoryId,
-        workMode: result.workMode
-      };
-      state.value.status = 'done';
-    }
+    await performAnalysis(manualInputText.value);
   } catch (error) {
     console.error('Analysis failed:', error);
-    state.value.status = 'error';
+  } finally {
+    isAnalyzing.value = false;
+  }
+}
+
+async function handleReAnalyze() {
+  showConfirmModal.value = false;
+  isAnalyzing.value = true;
+
+  try {
+    await performAnalysis(manualInputText.value);
+  } catch (error) {
+    console.error('Re-analysis failed:', error);
   } finally {
     isAnalyzing.value = false;
   }
 }
 
 function handleCancel() {
-  cancelRecording();
   generatedRecord.value = null;
   analysisResult.value = null;
   manualInputText.value = '';
   showNewCategoryPrompt.value = false;
   pendingNewCategoryName.value = '';
-  resetState();
+  showConfirmModal.value = false;
+}
+
+function openNewCategoryFromConfirm() {
+  showConfirmModal.value = false;
+  if (analysisResult.value) {
+    pendingNewCategoryName.value = analysisResult.value.summary.substring(0, 15);
+    showNewCategoryPrompt.value = true;
+  }
 }
 
 function confirmNewCategory() {
@@ -156,7 +162,7 @@ function confirmNewCategory() {
   }
   showNewCategoryPrompt.value = false;
   pendingNewCategoryName.value = '';
-  state.value.status = 'done';
+  showConfirmModal.value = true;
 }
 
 function rejectNewCategory() {
@@ -170,20 +176,12 @@ function rejectNewCategory() {
       categoryId: null,
       workMode: analysisResult.value.workMode
     };
+    showConfirmModal.value = true;
   }
-  state.value.status = 'done';
 }
 
 function openEditModal() {
-  if (analysisResult.value) {
-    editForm.value = {
-      startTime: formatTime(analysisResult.value.startTime),
-      endTime: formatTime(analysisResult.value.endTime),
-      summary: analysisResult.value.summary,
-      categoryId: analysisResult.value.suggestedCategoryId,
-      workMode: analysisResult.value.workMode
-    };
-  }
+  showConfirmModal.value = false;
   showEditModal.value = true;
 }
 
@@ -199,7 +197,7 @@ async function confirmRecord() {
     startTime: startDate.toISOString(),
     endTime: endDate.toISOString(),
     duration: analysisResult.value.duration,
-    rawText: inputMode.value === 'voice' ? (transcript.value || state.value.transcript) : manualInputText.value,
+    rawText: manualInputText.value,
     summary: analysisResult.value.summary,
     categoryId: editForm.value.categoryId,
     clusterId: null,
@@ -223,13 +221,11 @@ async function confirmRecord() {
 
   generatedRecord.value = record;
   manualInputText.value = '';
-  resetState();
-  state.value.status = 'done';
+  analysisResult.value = null;
+  showConfirmModal.value = false;
 
   setTimeout(() => {
     generatedRecord.value = null;
-    analysisResult.value = null;
-    resetState();
   }, 2000);
 }
 
@@ -256,11 +252,12 @@ function saveEditedRecord() {
     endTime: endDate.toISOString(),
     duration: Math.round((endDate.getTime() - startDate.getTime()) / 60000),
     summary: editForm.value.summary,
-    suggestedCategoryId: editForm.value.categoryId
+    suggestedCategoryId: editForm.value.categoryId,
+    workMode: editForm.value.workMode
   };
 
   showEditModal.value = false;
-  confirmRecord();
+  showConfirmModal.value = true;
 }
 
 onMounted(() => {
@@ -270,143 +267,138 @@ onMounted(() => {
 
 <template>
   <div class="page-content py-6">
-    <div class="flex flex-col items-center">
-      <div class="w-full max-w-sm mx-auto">
-        <div class="flex gap-2 p-1 bg-gray-100 rounded-lg mb-6">
+    <!-- 输入区域 -->
+    <div class="w-full max-w-lg mx-auto mb-8">
+      <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
+        <div class="space-y-4">
+          <div>
+            <label class="block text-sm font-medium text-gray-700 mb-2">
+              输入工作内容
+            </label>
+            <textarea
+              v-model="manualInputText"
+              :disabled="isAnalyzing"
+              class="input min-h-[120px] resize-none"
+              placeholder="例如：从上午9点到11点在做清洁机器人项目"
+            />
+          </div>
+
           <button
-            @click="inputMode = 'voice'"
+            @click="handleManualSubmit"
+            :disabled="!manualInputText.trim() || isAnalyzing"
             :class="[
-              'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all',
-              inputMode === 'voice'
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
+              'w-full btn py-3',
+              manualInputText.trim() && !isAnalyzing
+                ? 'btn-primary'
+                : 'bg-gray-100 text-gray-400 cursor-not-allowed'
             ]"
           >
-            <span class="flex items-center justify-center gap-2">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-              </svg>
-              语音输入
-            </span>
-          </button>
-          <button
-            @click="inputMode = 'keyboard'"
-            :class="[
-              'flex-1 py-2 px-4 rounded-md text-sm font-medium transition-all',
-              inputMode === 'keyboard'
-                ? 'bg-white text-primary shadow-sm'
-                : 'text-gray-500 hover:text-gray-700'
-            ]"
-          >
-            <span class="flex items-center justify-center gap-2">
-              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-              键盘输入
-            </span>
+            {{ isAnalyzing ? '分析中...' : '提交' }}
           </button>
         </div>
+      </div>
+    </div>
 
-        <template v-if="inputMode === 'voice'">
-          <RecordButton
-            :status="state.status"
-            :is-recording="state.isRecording"
-            :duration="state.duration"
-            :audio-level="state.audioLevel"
-            @start="handleStartRecording"
-            @stop="handleStopRecording"
-          />
-
-          <div class="mt-8 text-center">
-            <p class="text-sm text-gray-500">
-              <template v-if="state.status === 'idle'">
-                点击按钮开始录音
-              </template>
-              <template v-else-if="state.status === 'recording'">
-                录音中 · {{ formatRecordingTime(state.duration) }}
-              </template>
-              <template v-else-if="state.status === 'processing'">
-                AI 分析中...
-              </template>
-              <template v-else-if="state.status === 'done'">
-                记录已保存
-              </template>
-              <template v-else-if="state.status === 'error'">
-                发生错误，请重试
-              </template>
-            </p>
+    <!-- 今日数据 -->
+    <div class="w-full max-w-lg mx-auto">
+      <h2 class="text-lg font-semibold text-gray-900 mb-4">{{ getTodayDateDisplay() }}</h2>
+      
+      <!-- 统计卡片 -->
+      <div class="grid grid-cols-2 gap-4 mb-6">
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="text-2xl font-bold text-indigo-600 mb-1">
+            {{ formatDuration(todayTotalMinutes) }}
           </div>
-
-          <TranscriptView
-            v-if="state.status === 'recording' || state.status === 'done'"
-            :transcript="displayTranscript"
-            :is-recording="state.isRecording"
-            class="mt-6"
-          />
-        </template>
-
-        <template v-else>
-          <div class="space-y-4">
-            <div>
-              <label class="block text-sm font-medium text-gray-700 mb-2">
-                输入工作内容
-              </label>
-              <textarea
-                v-model="manualInputText"
-                :disabled="state.status === 'processing'"
-                class="input min-h-[120px] resize-none"
-                placeholder="例如：从上午9点到11点在做清洁机器人项目"
-              />
-            </div>
-
-            <div class="flex gap-3">
-              <button
-                v-if="state.status !== 'idle'"
-                @click="handleCancel"
-                class="flex-1 btn btn-secondary py-3"
-              >
-                取消
-              </button>
-              <button
-                @click="handleManualSubmit"
-                :disabled="!manualInputText.trim() || state.status === 'processing'"
-                :class="[
-                  'flex-1 btn py-3',
-                  manualInputText.trim() && state.status !== 'processing'
-                    ? 'btn-primary'
-                    : 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                ]"
-              >
-                {{ state.status === 'processing' ? '分析中...' : '提交' }}
-              </button>
-            </div>
+          <div class="text-xs text-gray-500">今日工作时长</div>
+        </div>
+        <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+          <div class="text-2xl font-bold text-purple-600 mb-1">
+            {{ todayRecords.length }}
           </div>
-        </template>
+          <div class="text-xs text-gray-500">今日记录条数</div>
+        </div>
       </div>
 
-      <Teleport to="body">
-        <Transition name="modal">
+      <!-- 项目分布 -->
+      <div v-if="Object.keys(todayCategoryStats).length > 0" class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6">
+        <div class="text-sm font-medium text-gray-700 mb-3">项目投入</div>
+        <div class="space-y-2">
           <div
-            v-if="showNewCategoryPrompt"
-            class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+            v-for="[categoryId, minutes] in Object.entries(todayCategoryStats)"
+            :key="categoryId"
           >
-            <div
-              class="absolute inset-0 bg-black/50 backdrop-blur-sm"
-              @click="rejectNewCategory"
-            />
-            <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden animate-scale-in">
-              <div class="p-6">
-                <div class="text-center mb-6">
-                  <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
-                    <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
-                    </svg>
-                  </div>
-                  <h3 class="text-lg font-semibold text-gray-900 mb-2">
-                  检测到新工作类型
+            <div class="flex justify-between text-xs mb-1">
+              <span class="text-gray-600">{{ userStore.categories.find(c => c.id === categoryId)?.name || '待标注' }}</span>
+              <span class="text-gray-800 font-medium">{{ formatDuration(minutes) }}</span>
+            </div>
+            <div class="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+              <div 
+                class="h-full bg-indigo-500 rounded-full transition-all duration-500"
+                :style="{ width: `${todayTotalMinutes > 0 ? (minutes / todayTotalMinutes) * 100 : 0}%` }"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 今日记录列表 -->
+      <div v-if="todayRecords.length > 0" class="space-y-3">
+        <div class="text-sm font-medium text-gray-700">今日记录</div>
+        <RecordCard
+          v-for="record in [...todayRecords].reverse()"
+          :key="record.id"
+          :record="record"
+          :categories="userStore.categories"
+        />
+      </div>
+    </div>
+
+    <!-- 保存成功提示 -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="generatedRecord"
+          class="fixed top-4 left-1/2 -translate-x-1/2 z-50"
+        >
+          <div class="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-3 shadow-lg">
+            <div class="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center flex-shrink-0">
+              <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            <div>
+              <p class="font-medium text-green-800 text-sm">记录已保存</p>
+              <p class="text-xs text-green-600">{{ formatDuration(generatedRecord.duration) }}</p>
+            </div>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- 新工作项目提示 -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showNewCategoryPrompt"
+          class="fixed inset-0 z-[100] flex items-center justify-center p-4"
+        >
+          <div
+            class="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            @click="handleCancel"
+          />
+          <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden animate-scale-in">
+            <div class="p-6">
+              <div class="text-center mb-6">
+                <div class="w-16 h-16 mx-auto mb-4 rounded-full bg-primary/10 flex items-center justify-center">
+                  <svg class="w-8 h-8 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                  </svg>
+                </div>
+                <h3 class="text-lg font-semibold text-gray-900 mb-2">
+                  检测到新工作项目
                 </h3>
                 <p class="text-sm text-gray-500">
-                  您提到的工作似乎是一个新的工作项目，可以手动修改名称：
+                  您提到的工作似乎是一个新的项目，可以手动修改名称：
                 </p>
               </div>
 
@@ -431,140 +423,100 @@ onMounted(() => {
                   >
                     创建"{{ pendingNewCategoryName }}"项目
                   </button>
-                    <button
-                      @click="rejectNewCategory"
-                      class="w-full btn btn-secondary py-3"
-                    >
-                      取消
-                    </button>
-                  </div>
+                  <button
+                    @click="rejectNewCategory"
+                    class="w-full btn btn-secondary py-3"
+                  >
+                    不创建，继续
+                  </button>
+                  <button
+                    @click="handleCancel"
+                    class="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                  >
+                    取消
+                  </button>
                 </div>
               </div>
             </div>
           </div>
-        </Transition>
-      </Teleport>
-
-      <div
-        v-if="state.status === 'done' && analysisResult && !generatedRecord"
-        class="mt-6 w-full max-w-sm mx-auto space-y-4 animate-slide-up"
-      >
-        <RecordCard
-          :record="{
-            id: 'preview',
-            startTime: analysisResult.startTime,
-            endTime: analysisResult.endTime,
-            duration: analysisResult.duration,
-            summary: analysisResult.summary,
-            categoryId: analysisResult.suggestedCategoryId,
-            workMode: analysisResult.workMode,
-            confidence: analysisResult.confidence
-          }"
-          :categories="userStore.categories"
-          :is-preview="true"
-        />
-
-        <div class="flex gap-3">
-          <button
-            @click="openEditModal"
-            class="flex-1 btn btn-secondary py-3"
-          >
-            编辑
-          </button>
-          <button
-            @click="confirmRecord"
-            class="flex-1 btn btn-primary py-3"
-          >
-            确认保存
-          </button>
         </div>
+      </Transition>
+    </Teleport>
 
-        <button
-          @click="handleCancel"
-          class="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors"
+    <!-- 记录确认弹出框 -->
+    <Teleport to="body">
+      <Transition name="modal">
+        <div
+          v-if="showConfirmModal"
+          class="fixed inset-0 z-[90] flex items-center justify-center p-4"
         >
-          取消
-        </button>
-      </div>
+          <div
+            class="absolute inset-0 bg-black/50 backdrop-blur-sm"
+            @click="handleCancel"
+          />
+          <div class="relative w-full max-w-sm bg-white rounded-2xl shadow-xl overflow-hidden animate-scale-in">
+            <div class="p-6">
+              <h3 class="text-lg font-semibold text-gray-900 mb-4">确认记录</h3>
+              
+              <div class="mb-4">
+                <RecordCard
+                  :record="{
+                    id: 'preview',
+                    startTime: analysisResult?.startTime || '',
+                    endTime: analysisResult?.endTime || '',
+                    duration: analysisResult?.duration || 0,
+                    summary: analysisResult?.summary || '',
+                    categoryId: editForm.categoryId,
+                    workMode: editForm.workMode,
+                    confidence: analysisResult?.confidence
+                  }"
+                  :categories="userStore.categories"
+                  :is-preview="true"
+                />
+              </div>
 
-      <div
-        v-if="generatedRecord"
-        class="mt-6 w-full max-w-sm mx-auto animate-slide-up"
-      >
-        <div class="card p-4 bg-green-50 border-green-200">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-              <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-            <div>
-              <p class="font-medium text-green-800">记录已保存</p>
-              <p class="text-sm text-green-600">{{ formatDuration(generatedRecord.duration) }}</p>
+              <div class="flex gap-3 mb-3">
+                <button
+                  @click="handleReAnalyze"
+                  :disabled="isAnalyzing"
+                  class="flex-1 btn btn-secondary py-3"
+                >
+                  {{ isAnalyzing ? '重新分析中...' : '重新分析' }}
+                </button>
+                <button
+                  @click="openEditModal"
+                  class="flex-1 btn btn-secondary py-3"
+                >
+                  编辑
+                </button>
+              </div>
+              <div class="flex gap-3 mb-3">
+                <button
+                  @click="openNewCategoryFromConfirm"
+                  class="flex-1 bg-purple-100 text-purple-700 border border-purple-200 hover:bg-purple-200 py-3 px-4 rounded-xl font-medium transition-colors"
+                >
+                  创建新项目
+                </button>
+                <button
+                  @click="confirmRecord"
+                  class="flex-1 btn btn-primary py-3"
+                >
+                  保存
+                </button>
+              </div>
+              <button
+                @click="handleCancel"
+                class="w-full text-sm text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                取消
+              </button>
             </div>
           </div>
         </div>
-      </div>
+      </Transition>
+    </Teleport>
 
-      <div
-        v-if="state.status === 'error'"
-        class="mt-6 w-full max-w-sm mx-auto animate-slide-up"
-      >
-        <div class="card p-4 bg-red-50 border-red-200">
-          <div class="flex items-start gap-3">
-            <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center flex-shrink-0">
-              <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-              </svg>
-            </div>
-            <div class="flex-1">
-              <p class="font-medium text-red-800 mb-1">录音失败</p>
-              <p class="text-sm text-red-600">{{ permissionError || '请检查麦克风权限后重试' }}</p>
-            </div>
-          </div>
-        </div>
-        <button
-          @click="handleCancel"
-          class="mt-3 w-full btn btn-secondary py-2"
-        >
-          重试
-        </button>
-      </div>
-    </div>
-
-    <div
-      v-if="recordStore.pendingRecords.length > 0"
-      class="mt-8 pt-8 border-t border-gray-200"
-    >
-      <h3 class="section-title">待标注记录</h3>
-      <div class="space-y-3">
-        <RecordCard
-          v-for="record in recordStore.pendingRecords.slice(0, 3)"
-          :key="record.id"
-          :record="record"
-          :categories="userStore.categories"
-        />
-        <router-link
-          v-if="recordStore.pendingRecords.length > 3"
-          to="/annotation"
-          class="block text-center text-sm text-primary hover:text-primary-dark transition-colors"
-        >
-          查看全部 {{ recordStore.pendingRecords.length }} 条待标注记录 →
-        </router-link>
-      </div>
-    </div>
-
-    <div
-      v-if="state.status === 'idle' && recordStore.records.length === 0"
-      class="mt-12 empty-state"
-    >
-      <svg class="w-16 h-16 text-gray-300 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
-      </svg>
-      <p class="text-gray-500 mb-2">还没有任何记录</p>
-      <p class="text-sm text-gray-400">点击上方按钮开始记录你的工作时间</p>
-    </div>
-
+    <!-- 编辑记录弹出框 -->
     <Teleport to="body">
       <Transition name="modal">
         <div
@@ -617,7 +569,7 @@ onMounted(() => {
                   >
                     <option :value="null">待标注</option>
                     <option
-                      v-for="category in userStore.categories"
+                      v-for="category in userStore.categories.filter(c => !c.isCompleted)"
                       :key="category.id"
                       :value="category.id"
                     >
@@ -641,16 +593,16 @@ onMounted(() => {
 
               <div class="flex gap-3 mt-6">
                 <button
-                  @click="showEditModal = false"
+                  @click="showEditModal = false; showConfirmModal = true"
                   class="flex-1 btn btn-secondary py-3"
                 >
-                  取消
+                  返回
                 </button>
                 <button
                   @click="saveEditedRecord"
                   class="flex-1 btn btn-primary py-3"
                 >
-                  保存
+                  保存编辑
                 </button>
               </div>
             </div>
@@ -662,13 +614,19 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.3s ease;
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(-10px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.modal-enter-from,
-.modal-leave-to {
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.3s ease, transform 0.3s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
   opacity: 0;
+  transform: translateY(-10px);
 }
 </style>

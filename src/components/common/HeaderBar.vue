@@ -7,13 +7,13 @@ const router = useRouter();
 
 const pageTitle = computed(() => {
   const titles: Record<string, string> = {
-    home: '智能工时',
+    home: '时间去哪了',
     records: '记录列表',
     annotation: '标注工作',
     workbench: '工作台',
     settings: '设置'
   };
-  return titles[route.name as string] || '智能工时';
+  return titles[route.name as string] || '时间去哪了';
 });
 
 const showBack = computed(() => {

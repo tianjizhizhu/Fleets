@@ -94,7 +94,7 @@ ${hasActiveCategories ? `
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'Qwen/Qwen2.5-7B-Instruct',
+        model: 'moonshotai/Kimi-K2-Instruct-0905',
         messages: [
           {
             role: 'user',
@@ -330,7 +330,7 @@ ${categories.map(c => `- ${c.name} (ID: ${c.id})`).join('\n')}
         'Authorization': `Bearer ${apiKey}`
       },
       body: JSON.stringify({
-        model: 'Qwen/Qwen2.5-7B-Instruct',
+        model: 'moonshotai/Kimi-K2-Instruct-0905',
         messages: [
           {
             role: 'user',
