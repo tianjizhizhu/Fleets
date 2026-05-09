@@ -6,7 +6,7 @@ import { useAudioRecorder } from '@/composables/useAudioRecorder';
 import { analyzeWorkText, type AnalysisResult } from '@/utils/ai';
 import { generateId } from '@/utils/storage';
 import { formatRecordingTime, formatTime, formatDuration } from '@/utils/time';
-import type { WorkRecord } from '@/types';
+import type { WorkRecord, WorkMode } from '@/types';
 import RecordButton from '@/components/record/RecordButton.vue';
 import RecordCard from '@/components/record/RecordCard.vue';
 import TranscriptView from '@/components/record/TranscriptView.vue';
@@ -35,7 +35,8 @@ const editForm = ref({
   startTime: '',
   endTime: '',
   summary: '',
-  categoryId: null as string | null
+  categoryId: null as string | null,
+  workMode: 'SOLO' as WorkMode
 });
 
 const showNewCategoryPrompt = ref(false);
@@ -83,7 +84,8 @@ async function handleStopRecording() {
         startTime: formatTime(result.startTime),
         endTime: formatTime(result.endTime),
         summary: result.summary,
-        categoryId: result.suggestedCategoryId
+        categoryId: result.suggestedCategoryId,
+        workMode: result.workMode
       };
       state.value.status = 'done';
     }
@@ -115,7 +117,8 @@ async function handleManualSubmit() {
         startTime: formatTime(result.startTime),
         endTime: formatTime(result.endTime),
         summary: result.summary,
-        categoryId: result.suggestedCategoryId
+        categoryId: result.suggestedCategoryId,
+        workMode: result.workMode
       };
       state.value.status = 'done';
     }
@@ -146,7 +149,8 @@ function confirmNewCategory() {
         startTime: formatTime(analysisResult.value.startTime),
         endTime: formatTime(analysisResult.value.endTime),
         summary: analysisResult.value.summary,
-        categoryId: newCategory.id
+        categoryId: newCategory.id,
+        workMode: analysisResult.value.workMode
       };
     }
   }
@@ -163,7 +167,8 @@ function rejectNewCategory() {
       startTime: formatTime(analysisResult.value.startTime),
       endTime: formatTime(analysisResult.value.endTime),
       summary: analysisResult.value.summary,
-      categoryId: null
+      categoryId: null,
+      workMode: analysisResult.value.workMode
     };
   }
   state.value.status = 'done';
@@ -175,7 +180,8 @@ function openEditModal() {
       startTime: formatTime(analysisResult.value.startTime),
       endTime: formatTime(analysisResult.value.endTime),
       summary: analysisResult.value.summary,
-      categoryId: analysisResult.value.suggestedCategoryId
+      categoryId: analysisResult.value.suggestedCategoryId,
+      workMode: analysisResult.value.workMode
     };
   }
   showEditModal.value = true;
@@ -197,6 +203,7 @@ async function confirmRecord() {
     summary: analysisResult.value.summary,
     categoryId: editForm.value.categoryId,
     clusterId: null,
+    workMode: editForm.value.workMode,
     confidence: analysisResult.value.confidence,
     annotationStatus: editForm.value.categoryId ? 'confirmed' : 'pending',
     createdAt: now.toISOString(),
@@ -396,26 +403,41 @@ onMounted(() => {
                     </svg>
                   </div>
                   <h3 class="text-lg font-semibold text-gray-900 mb-2">
-                    检测到新工作类型
-                  </h3>
-                  <p class="text-sm text-gray-500">
-                    您提到的工作 "<span class="font-medium text-primary">{{ pendingNewCategoryName }}</span>" 似乎是一个新的工作类别
-                  </p>
+                  检测到新工作类型
+                </h3>
+                <p class="text-sm text-gray-500">
+                  您提到的工作似乎是一个新的工作项目，可以手动修改名称：
+                </p>
+              </div>
+
+              <div class="space-y-4">
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">
+                    工作项目名称
+                  </label>
+                  <input
+                    v-model="pendingNewCategoryName"
+                    type="text"
+                    class="input"
+                    placeholder="请输入工作项目名称"
+                  />
                 </div>
 
                 <div class="space-y-3">
                   <button
                     @click="confirmNewCategory"
+                    :disabled="!pendingNewCategoryName.trim()"
                     class="w-full btn btn-primary py-3"
                   >
-                    是，创建"{{ pendingNewCategoryName }}"类别
+                    创建"{{ pendingNewCategoryName }}"项目
                   </button>
-                  <button
-                    @click="rejectNewCategory"
-                    class="w-full btn btn-secondary py-3"
-                  >
-                    不是，保持待标注
-                  </button>
+                    <button
+                      @click="rejectNewCategory"
+                      class="w-full btn btn-secondary py-3"
+                    >
+                      取消
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -435,6 +457,7 @@ onMounted(() => {
             duration: analysisResult.duration,
             summary: analysisResult.summary,
             categoryId: analysisResult.suggestedCategoryId,
+            workMode: analysisResult.workMode,
             confidence: analysisResult.confidence
           }"
           :categories="userStore.categories"
@@ -587,7 +610,7 @@ onMounted(() => {
                 </div>
 
                 <div>
-                  <label class="block text-sm font-medium text-gray-700 mb-1">工作分类</label>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">工作项目</label>
                   <select
                     v-model="editForm.categoryId"
                     class="input"
@@ -600,6 +623,18 @@ onMounted(() => {
                     >
                       {{ category.name }}
                     </option>
+                  </select>
+                </div>
+
+                <div>
+                  <label class="block text-sm font-medium text-gray-700 mb-1">工作方式</label>
+                  <select
+                    v-model="editForm.workMode"
+                    class="input"
+                  >
+                    <option value="SOLO">SOLO - 独自工作</option>
+                    <option value="会议">会议 - 多人讨论</option>
+                    <option value="调研">调研 - 外出考察</option>
                   </select>
                 </div>
               </div>

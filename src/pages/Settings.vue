@@ -1,15 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { useUserStore } from '@/stores/userStore';
 import { useRecordStore } from '@/stores/recordStore';
 import { useClusterStore } from '@/stores/clusterStore';
-import { exportAllData, importData, clearAllData } from '@/utils/storage';
+import { exportAllData, importData, clearAllData, saveRecord } from '@/utils/storage';
 import { getApiKey, setApiKey, hasApiKey } from '@/utils/ai';
 
 const userStore = useUserStore();
 const recordStore = useRecordStore();
 const clusterStore = useClusterStore();
 
+const currentPage = ref<'main' | 'category' | 'ai'>('main');
 const newCategoryName = ref('');
 const showAddCategory = ref(false);
 const showClearConfirm = ref(false);
@@ -17,6 +18,25 @@ const isExporting = ref(false);
 const isImporting = ref(false);
 const apiKeyInput = ref(getApiKey() || '');
 const showApiKeyInput = ref(false);
+const categoryTab = ref<'active' | 'completed'>('active');
+
+const editingCategoryId = ref<string | null>(null);
+const editingCategoryName = ref('');
+
+const activeCategories = computed(() => userStore.categories.filter(c => !c.isCompleted));
+const completedCategories = computed(() => userStore.categories.filter(c => c.isCompleted));
+
+function goToCategoryPage() {
+  currentPage.value = 'category';
+}
+
+function goToAiPage() {
+  currentPage.value = 'ai';
+}
+
+function goBack() {
+  currentPage.value = 'main';
+}
 
 function addCategory() {
   const name = newCategoryName.value.trim();
@@ -27,8 +47,60 @@ function addCategory() {
   }
 }
 
+function startEditCategory(id: string, name: string) {
+  editingCategoryId.value = id;
+  editingCategoryName.value = name;
+}
+
+function cancelEditCategory() {
+  editingCategoryId.value = null;
+  editingCategoryName.value = '';
+}
+
+async function saveCategory() {
+  if (!editingCategoryId.value || !editingCategoryName.value.trim()) return;
+  
+  const oldCategory = userStore.categories.find(c => c.id === editingCategoryId.value);
+  const newName = editingCategoryName.value.trim();
+  
+  if (oldCategory && oldCategory.name !== newName) {
+    const oldName = oldCategory.name;
+    userStore.updateCategory(editingCategoryId.value, { name: newName });
+    
+    const recordsToUpdate = recordStore.records.filter(r => r.categoryId === editingCategoryId.value);
+    for (const record of recordsToUpdate) {
+      const recordCopy = JSON.parse(JSON.stringify(record));
+      recordCopy.summary = recordCopy.summary.replace(oldName, newName);
+      await saveRecord(recordCopy);
+    }
+    await recordStore.loadRecords();
+    
+    alert(`已将 "${oldName}" 相关的 ${recordsToUpdate.length} 条记录更新为 "${newName}"`);
+  }
+  
+  editingCategoryId.value = null;
+  editingCategoryName.value = '';
+}
+
+function toggleCategoryCompleted(id: string) {
+  const category = userStore.categories.find(c => c.id === id);
+  if (category) {
+    userStore.updateCategory(id, { isCompleted: !category.isCompleted });
+  }
+}
+
 function deleteCategory(id: string) {
-  userStore.deleteCategory(id);
+  if (confirm('确定要删除这个类别吗？删除后，相关记录将变为待标注状态。')) {
+    const recordsToUpdate = recordStore.records.filter(r => r.categoryId === id);
+    for (const record of recordsToUpdate) {
+      const recordCopy = JSON.parse(JSON.stringify(record));
+      recordCopy.categoryId = null;
+      recordCopy.annotationStatus = 'pending';
+      saveRecord(recordCopy);
+    }
+    userStore.deleteCategory(id);
+    recordStore.loadRecords();
+  }
 }
 
 async function handleExport() {
@@ -103,74 +175,382 @@ onMounted(() => {
 
 <template>
   <div class="page-content py-4">
-    <div class="mb-6">
-      <h3 class="section-title">工作类别管理</h3>
+    <template v-if="currentPage === 'main'">
+      <div class="mb-6">
+        <h3 class="section-title">设置</h3>
 
-      <div class="space-y-3">
-        <div
-          v-for="category in userStore.categories"
-          :key="category.id"
-          class="card p-4"
-        >
-          <div class="flex items-center justify-between">
-            <div>
-              <div class="font-medium text-gray-900">{{ category.name }}</div>
-              <div class="text-sm text-gray-500">
-                已使用 {{ category.usageCount }} 次
+        <div class="space-y-3">
+          <button
+            @click="goToCategoryPage"
+            class="w-full card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A2 2 0 013 12V7a4 4 0 014-4z" />
+                </svg>
+              </div>
+              <div class="text-left">
+                <div class="font-medium text-gray-900">工作项目管理</div>
+              <div class="text-sm text-gray-500">管理正在进行和已完成的工作项目</div>
               </div>
             </div>
-            <button
-              @click="deleteCategory(category.id)"
-              class="p-2 text-gray-400 hover:text-red-500 transition-colors"
-            >
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+            <div class="flex items-center gap-2">
+              <span class="text-xs bg-gray-100 px-2 py-1 rounded">{{ activeCategories.length }}进行中 · {{ completedCategories.length }}已完成</span>
+              <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
               </svg>
-            </button>
-          </div>
-        </div>
+            </div>
+          </button>
 
-        <button
-          v-if="!showAddCategory"
-          @click="showAddCategory = true"
-          class="w-full card p-4 border-dashed border-2 border-gray-200 hover:border-primary hover:text-primary transition-colors text-gray-500"
-        >
-          <div class="flex items-center justify-center gap-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+          <button
+            @click="goToAiPage"
+            :disabled="isExporting"
+            class="w-full card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-purple-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                </svg>
+              </div>
+              <div class="text-left">
+                <div class="font-medium text-gray-900">AI 服务配置</div>
+                <div class="text-sm text-gray-500">{{ hasApiKey() ? '已配置 API Key' : '未配置 API Key' }}</div>
+              </div>
+            </div>
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
-            <span>添加新类别</span>
-          </div>
-        </button>
+          </button>
 
-        <div v-else class="card p-4">
-          <div class="flex gap-2">
-            <input
-              v-model="newCategoryName"
-              @keydown.enter="addCategory"
-              type="text"
-              placeholder="输入类别名称"
-              class="input flex-1"
-            />
-            <button
-              @click="addCategory"
-              class="btn btn-primary"
-            >
-              添加
-            </button>
-            <button
-              @click="showAddCategory = false; newCategoryName = ''"
-              class="btn btn-secondary"
-            >
-              取消
-            </button>
+          <button
+            @click="handleExport"
+            :disabled="isExporting"
+            class="w-full card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </div>
+              <div class="text-left">
+                <div class="font-medium text-gray-900">导出数据</div>
+                <div class="text-sm text-gray-500">将所有记录导出为 JSON 文件</div>
+              </div>
+            </div>
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          <button
+            @click="handleImport"
+            :disabled="isImporting"
+            class="w-full card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                </svg>
+              </div>
+              <div class="text-left">
+                <div class="font-medium text-gray-900">导入数据</div>
+                <div class="text-sm text-gray-500">从 JSON 文件恢复数据</div>
+              </div>
+            </div>
+            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          <button
+            v-if="!showClearConfirm"
+            @click="showClearConfirm = true"
+            class="w-full card p-4 flex items-center justify-between hover:bg-red-50 transition-colors border-red-100"
+          >
+            <div class="flex items-center gap-3">
+              <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
+                <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div class="text-left">
+                <div class="font-medium text-red-600">清空所有数据</div>
+                <div class="text-sm text-red-400">删除所有记录和设置</div>
+              </div>
+            </div>
+            <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+
+          <div v-if="showClearConfirm" class="card p-4 bg-red-50 border border-red-200">
+            <p class="text-red-700 mb-4">确定要清空所有数据吗？此操作不可恢复。</p>
+            <div class="flex gap-2">
+              <button
+                @click="showClearConfirm = false"
+                class="flex-1 btn btn-secondary"
+              >
+                取消
+              </button>
+              <button
+                @click="handleClearData"
+                class="flex-1 btn btn-danger"
+              >
+                确认清空
+              </button>
+            </div>
           </div>
         </div>
       </div>
-    </div>
 
-    <div class="mb-6">
-      <h3 class="section-title">AI 服务配置</h3>
+      <div class="text-center text-sm text-gray-400 py-8">
+        <p>智能工时 v1.0.0</p>
+        <p class="mt-1">让工作记录更简单</p>
+      </div>
+    </template>
+
+    <template v-else-if="currentPage === 'category'">
+      <div class="mb-4">
+        <button
+          @click="goBack"
+          class="flex items-center gap-1 text-gray-600 hover:text-gray-900 mb-3"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
+          <span>返回设置</span>
+        </button>
+        <h3 class="section-title">工作项目管理</h3>
+      </div>
+
+      <div class="flex gap-2 mb-4">
+        <button
+          @click="categoryTab = 'active'"
+          :class="[
+            'flex-1 py-2 px-4 rounded-lg font-medium transition-colors',
+            categoryTab === 'active'
+              ? 'bg-primary text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          ]"
+        >
+          进行中 ({{ activeCategories.length }})
+        </button>
+        <button
+          @click="categoryTab = 'completed'"
+          :class="[
+            'flex-1 py-2 px-4 rounded-lg font-medium transition-colors',
+            categoryTab === 'completed'
+              ? 'bg-primary text-white'
+              : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+          ]"
+        >
+          已完成 ({{ completedCategories.length }})
+        </button>
+      </div>
+
+      <div class="space-y-3 mb-6">
+        <template v-if="categoryTab === 'active'">
+          <div
+            v-for="category in activeCategories"
+            :key="category.id"
+            class="card p-4"
+          >
+            <div class="flex items-center justify-between">
+              <template v-if="editingCategoryId === category.id">
+                <div class="flex-1 flex gap-2 items-center">
+                  <input
+                    v-model="editingCategoryName"
+                    @keydown.enter="saveCategory"
+                    type="text"
+                    class="input flex-1"
+                  />
+                  <button
+                    @click="saveCategory"
+                    class="btn btn-primary py-2 px-3 text-sm"
+                  >
+                    保存
+                  </button>
+                  <button
+                    @click="cancelEditCategory"
+                    class="btn btn-secondary py-2 px-3 text-sm"
+                  >
+                    取消
+                  </button>
+                </div>
+              </template>
+              <template v-else>
+                <div>
+                  <div class="font-medium text-gray-900">{{ category.name }}</div>
+                  <div class="text-sm text-gray-500">
+                    已使用 {{ category.usageCount }} 次
+                  </div>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    @click="startEditCategory(category.id, category.name)"
+                    class="p-2 text-gray-400 hover:text-primary transition-colors"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <button
+                    @click="toggleCategoryCompleted(category.id)"
+                    class="p-2 text-gray-400 hover:text-green-500 transition-colors"
+                    title="标记为已完成"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                  </button>
+                  <button
+                    @click="deleteCategory(category.id)"
+                    class="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <button
+            v-if="!showAddCategory"
+            @click="showAddCategory = true"
+            class="w-full card p-4 border-dashed border-2 border-gray-200 hover:border-primary hover:text-primary transition-colors text-gray-500"
+          >
+            <div class="flex items-center justify-center gap-2">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+              </svg>
+              <span>添加新类别</span>
+            </div>
+          </button>
+
+          <div v-else class="card p-4">
+            <div class="flex gap-2">
+              <input
+                v-model="newCategoryName"
+                @keydown.enter="addCategory"
+                type="text"
+                placeholder="输入类别名称"
+                class="input flex-1"
+              />
+              <button
+                @click="addCategory"
+                class="btn btn-primary"
+              >
+                添加
+              </button>
+              <button
+                @click="showAddCategory = false; newCategoryName = ''"
+                class="btn btn-secondary"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+
+          <div v-if="activeCategories.length === 0 && !showAddCategory" class="text-center py-8 text-gray-500">
+            <p>暂无进行中的工作项目</p>
+            <p class="text-sm mt-1">点击上方按钮添加新项目</p>
+          </div>
+        </template>
+
+        <template v-else>
+          <div
+            v-for="category in completedCategories"
+            :key="category.id"
+            class="card p-4"
+          >
+            <div class="flex items-center justify-between">
+              <template v-if="editingCategoryId === category.id">
+                <div class="flex-1 flex gap-2 items-center">
+                  <input
+                    v-model="editingCategoryName"
+                    @keydown.enter="saveCategory"
+                    type="text"
+                    class="input flex-1"
+                  />
+                  <button
+                    @click="saveCategory"
+                    class="btn btn-primary py-2 px-3 text-sm"
+                  >
+                    保存
+                  </button>
+                  <button
+                    @click="cancelEditCategory"
+                    class="btn btn-secondary py-2 px-3 text-sm"
+                  >
+                    取消
+                  </button>
+                </div>
+              </template>
+              <template v-else>
+                <div>
+                  <div class="font-medium text-gray-900 line-through text-gray-400">{{ category.name }}</div>
+                  <div class="text-sm text-gray-400">
+                    已使用 {{ category.usageCount }} 次
+                  </div>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    @click="startEditCategory(category.id, category.name)"
+                    class="p-2 text-gray-400 hover:text-primary transition-colors"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                    </svg>
+                  </button>
+                  <button
+                    @click="toggleCategoryCompleted(category.id)"
+                    class="p-2 text-gray-400 hover:text-blue-500 transition-colors"
+                    title="恢复为进行中"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                    </svg>
+                  </button>
+                  <button
+                    @click="deleteCategory(category.id)"
+                    class="p-2 text-gray-400 hover:text-red-500 transition-colors"
+                  >
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+                </div>
+              </template>
+            </div>
+          </div>
+
+          <div v-if="completedCategories.length === 0" class="text-center py-8 text-gray-500">
+            <p>暂无已完成的工作项目</p>
+            <p class="text-sm mt-1">点击项目旁的复选标记可将其标记为已完成</p>
+          </div>
+        </template>
+      </div>
+    </template>
+
+    <template v-else-if="currentPage === 'ai'">
+      <div class="mb-4">
+        <button
+          @click="goBack"
+          class="flex items-center gap-1 text-gray-600 hover:text-gray-900 mb-3"
+        >
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+          </svg>
+          <span>返回设置</span>
+        </button>
+        <h3 class="section-title">AI 服务配置</h3>
+      </div>
 
       <div class="card p-4">
         <div class="flex items-start gap-3 mb-4">
@@ -237,98 +617,6 @@ onMounted(() => {
           </p>
         </div>
       </div>
-    </div>
-
-    <div class="mb-6">
-      <h3 class="section-title">数据管理</h3>
-
-      <div class="space-y-3">
-        <button
-          @click="handleExport"
-          :disabled="isExporting"
-          class="w-full card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-blue-100 flex items-center justify-center">
-              <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-              </svg>
-            </div>
-            <div class="text-left">
-              <div class="font-medium text-gray-900">导出数据</div>
-              <div class="text-sm text-gray-500">将所有记录导出为 JSON 文件</div>
-            </div>
-          </div>
-          <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-
-        <button
-          @click="handleImport"
-          :disabled="isImporting"
-          class="w-full card p-4 flex items-center justify-between hover:bg-gray-50 transition-colors"
-        >
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-green-100 flex items-center justify-center">
-              <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-              </svg>
-            </div>
-            <div class="text-left">
-              <div class="font-medium text-gray-900">导入数据</div>
-              <div class="text-sm text-gray-500">从 JSON 文件恢复数据</div>
-            </div>
-          </div>
-          <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-
-        <button
-          v-if="!showClearConfirm"
-          @click="showClearConfirm = true"
-          class="w-full card p-4 flex items-center justify-between hover:bg-red-50 transition-colors border-red-100"
-        >
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-full bg-red-100 flex items-center justify-center">
-              <svg class="w-5 h-5 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </div>
-            <div class="text-left">
-              <div class="font-medium text-red-600">清空所有数据</div>
-              <div class="text-sm text-red-400">删除所有记录和设置</div>
-            </div>
-          </div>
-          <svg class="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
-          </svg>
-        </button>
-
-        <div v-else class="card p-4 bg-red-50 border border-red-200">
-          <p class="text-red-700 mb-4">确定要清空所有数据吗？此操作不可恢复。</p>
-          <div class="flex gap-2">
-            <button
-              @click="showClearConfirm = false"
-              class="flex-1 btn btn-secondary"
-            >
-              取消
-            </button>
-            <button
-              @click="handleClearData"
-              class="flex-1 btn btn-danger"
-            >
-              确认清空
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="text-center text-sm text-gray-400 py-8">
-      <p>智能工时 v1.0.0</p>
-      <p class="mt-1">让工作记录更简单</p>
-    </div>
+    </template>
   </div>
 </template>

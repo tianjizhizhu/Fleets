@@ -35,7 +35,8 @@ export const useUserStore = defineStore('user', () => {
       description: '',
       keywords: [],
       usageCount: 0,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      isCompleted: false
     }));
     config.value!.hasCompletedOnboarding = true;
     saveConfig(config.value);
@@ -53,7 +54,8 @@ export const useUserStore = defineStore('user', () => {
       description,
       keywords: [],
       usageCount: 0,
-      createdAt: new Date().toISOString()
+      createdAt: new Date().toISOString(),
+      isCompleted: false
     });
     saveConfig(config.value);
   }

@@ -1,3 +1,5 @@
+export type WorkMode = 'SOLO' | '会议' | '调研';
+
 export interface WorkRecord {
   id: string;
   startTime: string;
@@ -7,6 +9,7 @@ export interface WorkRecord {
   summary: string;
   categoryId: string | null;
   clusterId: string | null;
+  workMode: WorkMode;
   confidence: number;
   annotationStatus: 'pending' | 'confirmed' | 'rejected';
   createdAt: string;
@@ -20,6 +23,7 @@ export interface WorkCategory {
   keywords: string[];
   usageCount: number;
   createdAt: string;
+  isCompleted: boolean;
 }
 
 export interface Cluster {

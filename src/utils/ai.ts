@@ -1,4 +1,4 @@
-import type { WorkCategory } from '@/types';
+import type { WorkCategory, WorkMode } from '@/types';
 
 const API_URL = 'https://api.siliconflow.cn/v1/chat/completions';
 const API_KEY_STORAGE_KEY = 'worktime_api_key';
@@ -23,6 +23,7 @@ export interface AnalysisResult {
   suggestedCategory: string | null;
   suggestedCategoryId: string | null;
   suggestedNewCategory: string | null;
+  workMode: WorkMode;
   confidence: number;
 }
 
@@ -32,18 +33,20 @@ export async function analyzeWorkText(
 ): Promise<AnalysisResult> {
   const apiKey = getApiKey();
 
+  const activeCategories = categories.filter(c => !c.isCompleted);
+
   if (!apiKey) {
-    return fallbackAnalysis(text, categories);
+    return fallbackAnalysis(text, activeCategories);
   }
 
-  const hasCategories = categories.length > 0;
-  const categoryList = hasCategories
-    ? categories.map(c => `- ${c.name}`).join('\n')
-    : '（用户尚未设置任何工作类别，请将这个工作作为新的工作类别）';
+  const hasActiveCategories = activeCategories.length > 0;
+  const categoryList = hasActiveCategories
+    ? activeCategories.map(c => `- ${c.name}`).join('\n')
+    : '（用户尚未设置任何进行中的工作类别，请将这个工作作为新的工作类别）';
 
   const prompt = `你是一个工作时间分析助手。用户会输入一段描述自己工作的文字，请从中提取信息并判断是否需要创建新的工作类别。
 
-当前用户已有的工作类别：
+当前用户已有的工作项目：
 ${categoryList}
 
 请分析以下用户输入：
@@ -52,8 +55,12 @@ ${categoryList}
 分析要求：
 1. 提取工作的开始时间和结束时间（24小时制，格式HH:MM）
 2. 提取工作内容的简短摘要（不超过50字）
-3. 如果用户已有工作类别，判断这个工作最匹配哪个已有类别
-4. 如果用户没有任何工作类别，或者工作明显不属于任何已有类别，则将此工作识别为新类别，提取工作名称作为"建议新类别"
+3. 如果用户已有工作项目，判断这个工作最匹配哪个已有项目
+4. 如果用户没有任何工作项目，或者工作明显不属于任何已有项目，则将此工作识别为新项目，提取工作名称作为"建议新项目"
+5. 判断工作方式：
+   - "SOLO"：独自工作、专注开发、写文档、整理资料等独立工作
+   - "会议"：开会、讨论、评审、汇报、沟通等需要多人参与的工作
+   - "调研"：外出、拜访客户、实地考察、市场调研等需要外出的工作
 
 请以JSON格式返回结果：
 {
@@ -64,17 +71,19 @@ ${categoryList}
   "suggestedCategory": "清洁机器人",
   "suggestedCategoryId": "xxx",
   "suggestedNewCategory": "文档整理",
+  "workMode": "SOLO",
   "confidence": 0.85
 }
 
 注意：
-${hasCategories ? `
-- 如果工作匹配某个已有类别，suggestedNewCategory应为null
-- 如果工作明显不属于任何已有类别，suggestedNewCategory应包含新类别名称
-- 如果用户输入中包含"新增"、"新工作"等关键词，应提取后面的工作名称作为新类别
+${hasActiveCategories ? `
+- 如果工作匹配某个已有项目，suggestedNewCategory应为null
+- 如果工作明显不属于任何已有项目，suggestedNewCategory应包含新项目名称
+- 如果用户输入中包含"新增"、"新项目"等关键词，应提取后面的工作名称作为新项目
 ` : `
-- 由于用户还没有设置任何工作类别，请将这个工作的主要内容提取为"建议新类别"
+- 由于用户还没有设置任何进行中的工作项目，请将这个工作的主要内容提取为"建议新项目"
 `}
+- workMode只能是"SOLO"、"会议"或"调研"三者之一
 - 只返回JSON，不要有其他内容。`;
 
   try {
@@ -138,8 +147,11 @@ ${hasCategories ? `
     }
 
     const suggestedCategory = result.suggestedCategory
-      ? categories.find(c => c.name === result.suggestedCategory)
+      ? activeCategories.find(c => c.name === result.suggestedCategory)
       : null;
+
+    const validWorkModes: WorkMode[] = ['SOLO', '会议', '调研'];
+    const workMode = validWorkModes.includes(result.workMode) ? result.workMode : 'SOLO';
 
     return {
       startTime: startDate.toISOString(),
@@ -149,12 +161,13 @@ ${hasCategories ? `
       suggestedCategory: suggestedCategory?.name || null,
       suggestedCategoryId: suggestedCategory?.id || null,
       suggestedNewCategory: result.suggestedNewCategory || null,
+      workMode,
       confidence: result.confidence || 0.5
     };
 
   } catch (error) {
     console.error('AI分析失败，使用备用方案:', error);
-    return fallbackAnalysis(text, categories);
+    return fallbackAnalysis(text, activeCategories);
   }
 }
 
@@ -245,6 +258,25 @@ function fallbackAnalysis(
     }
   }
 
+  const meetingKeywords = ['开会', '会议', '讨论', '评审', '汇报', '沟通', '协商', '研讨'];
+  const researchKeywords = ['外出', '拜访', '考察', '调研', '实地', '客户', '出差', '走访'];
+
+  let workMode: WorkMode = 'SOLO';
+  for (const keyword of meetingKeywords) {
+    if (lowerText.includes(keyword)) {
+      workMode = '会议';
+      break;
+    }
+  }
+  if (workMode === 'SOLO') {
+    for (const keyword of researchKeywords) {
+      if (lowerText.includes(keyword)) {
+        workMode = '调研';
+        break;
+      }
+    }
+  }
+
   return {
     startTime: startDate.toISOString(),
     endTime: endDate.toISOString(),
@@ -253,6 +285,7 @@ function fallbackAnalysis(
     suggestedCategory: suggestedCategory?.name || null,
     suggestedCategoryId: suggestedCategory?.id || null,
     suggestedNewCategory,
+    workMode,
     confidence: suggestedCategory ? 0.7 : 0.3
   };
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { formatTime, formatDuration } from '@/utils/time';
-import type { WorkRecord, WorkCategory } from '@/types';
+import type { WorkRecord, WorkCategory, WorkMode } from '@/types';
 import { useRecordStore } from '@/stores/recordStore';
 
 const props = defineProps<{
@@ -13,6 +13,7 @@ const props = defineProps<{
     summary?: string;
     categoryId?: string | null;
     confidence?: number;
+    workMode?: WorkMode;
   };
   categories: WorkCategory[];
   isPreview?: boolean;
@@ -41,6 +42,13 @@ const confidenceClass = computed(() => {
   if (confidence >= 0.8) return 'text-green-600';
   if (confidence >= 0.5) return 'text-yellow-600';
   return 'text-red-600';
+});
+
+const workModeClass = computed(() => {
+  const mode = props.record.workMode || 'SOLO';
+  if (mode === '会议') return 'bg-blue-100 text-blue-600';
+  if (mode === '调研') return 'bg-amber-100 text-amber-600';
+  return 'bg-green-100 text-green-600';
 });
 
 async function handleCategorySelect(categoryId: string) {
@@ -87,6 +95,13 @@ async function handleDelete() {
           <template v-else>
             <span class="tag bg-gray-100 text-gray-500">待标注</span>
           </template>
+
+          <span
+            v-if="record.workMode"
+            :class="['tag text-xs', workModeClass]"
+          >
+            {{ record.workMode }}
+          </span>
 
           <span
             v-if="record.confidence !== undefined && !isPreview"

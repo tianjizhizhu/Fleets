@@ -4,7 +4,7 @@ import { useRecordStore } from '@/stores/recordStore';
 import { useUserStore } from '@/stores/userStore';
 import { useClusterStore } from '@/stores/clusterStore';
 import { formatDuration } from '@/utils/time';
-import type { TimeGranularity } from '@/types';
+import type { TimeGranularity, WorkMode } from '@/types';
 import * as echarts from 'echarts';
 
 const recordStore = useRecordStore();
@@ -14,8 +14,10 @@ const clusterStore = useClusterStore();
 const timeGranularity = ref<TimeGranularity>('day');
 const pieChartRef = ref<HTMLDivElement | null>(null);
 const lineChartRef = ref<HTMLDivElement | null>(null);
+const workModeChartRef = ref<HTMLDivElement | null>(null);
 let pieChart: echarts.ECharts | null = null;
 let lineChart: echarts.ECharts | null = null;
+let workModeChart: echarts.ECharts | null = null;
 
 const stats = computed(() => {
   return clusterStore.getClusterStats(
@@ -34,6 +36,64 @@ const categoryChartData = computed(() => {
     percentage: stat.percentage
   }));
 });
+
+const workModeData = computed(() => {
+  const modeMap: Record<WorkMode, number> = { 'SOLO': 0, '会议': 0, '调研': 0 };
+  recordStore.records.forEach(record => {
+    if (record.workMode && modeMap[record.workMode] !== undefined) {
+      modeMap[record.workMode] += record.duration;
+    }
+  });
+  return Object.entries(modeMap)
+    .filter(([_, value]) => value > 0)
+    .map(([name, value]) => ({
+      name,
+      value,
+      percentage: totalDuration.value > 0 ? Math.round((value / totalDuration.value) * 100) : 0
+    }));
+});
+
+const workModeChartOption = computed(() => ({
+  tooltip: {
+    trigger: 'item',
+    formatter: '{b}: {c}分钟 ({d}%)'
+  },
+  legend: {
+    orient: 'vertical',
+    right: 10,
+    top: 'center',
+    textStyle: {
+      fontSize: 12
+    }
+  },
+  series: [
+    {
+      type: 'pie',
+      radius: ['45%', '70%'],
+      center: ['35%', '50%'],
+      avoidLabelOverlap: false,
+      itemStyle: {
+        borderRadius: 8,
+        borderColor: '#fff',
+        borderWidth: 2
+      },
+      label: {
+        show: false
+      },
+      emphasis: {
+        label: {
+          show: true,
+          fontSize: 14,
+          fontWeight: 'bold'
+        }
+      },
+      data: workModeData.value.length > 0
+        ? workModeData.value
+        : [{ name: '暂无数据', value: 1 }]
+    }
+  ],
+  color: ['#10b981', '#3b82f6', '#f59e0b']
+}));
 
 const pieOption = computed(() => ({
   tooltip: {
@@ -141,6 +201,9 @@ function initCharts() {
   if (lineChartRef.value && !lineChart) {
     lineChart = echarts.init(lineChartRef.value);
   }
+  if (workModeChartRef.value && !workModeChart) {
+    workModeChart = echarts.init(workModeChartRef.value);
+  }
 }
 
 function updateCharts() {
@@ -149,6 +212,9 @@ function updateCharts() {
   }
   if (lineChart) {
     lineChart.setOption(lineOption.value);
+  }
+  if (workModeChart) {
+    workModeChart.setOption(workModeChartOption.value);
   }
 }
 
@@ -172,6 +238,7 @@ onMounted(async () => {
   window.addEventListener('resize', () => {
     pieChart?.resize();
     lineChart?.resize();
+    workModeChart?.resize();
   });
 });
 
@@ -199,9 +266,16 @@ watch(() => stats.value, () => {
 
     <div class="card p-4 mb-6">
       <div class="flex items-center justify-between mb-4">
-        <h3 class="font-medium text-gray-900">工作类别分布</h3>
+        <h3 class="font-medium text-gray-900">工作项目分布</h3>
       </div>
       <div ref="pieChartRef" class="w-full h-64" />
+    </div>
+
+    <div class="card p-4 mb-6">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="font-medium text-gray-900">工作方式分布</h3>
+      </div>
+      <div ref="workModeChartRef" class="w-full h-64" />
     </div>
 
     <div class="card p-4 mb-6">
@@ -256,7 +330,7 @@ watch(() => stats.value, () => {
     </div>
 
     <div class="card p-4">
-      <h3 class="font-medium text-gray-900 mb-4">类别明细</h3>
+      <h3 class="font-medium text-gray-900 mb-4">项目明细</h3>
 
       <div v-if="categoryChartData.length === 0" class="text-center py-8">
         <p class="text-gray-500 mb-2">暂无分类数据</p>
