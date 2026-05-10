@@ -5,19 +5,29 @@ const DB_NAME = 'WorkTimeDB';
 const DB_VERSION = 1;
 
 let db: IDBDatabase | null = null;
+let dbInitPromise: Promise<IDBDatabase> | null = null;
 
 export function initDB(): Promise<IDBDatabase> {
-  return new Promise((resolve, reject) => {
-    if (db) {
-      resolve(db);
-      return;
-    }
+  if (db) {
+    return Promise.resolve(db);
+  }
 
+  if (dbInitPromise) {
+    return dbInitPromise;
+  }
+
+  dbInitPromise = new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, DB_VERSION);
 
-    request.onerror = () => reject(request.error);
+    request.onerror = () => {
+      console.error('IndexedDB 打开失败:', request.error);
+      dbInitPromise = null;
+      reject(request.error);
+    };
+
     request.onsuccess = () => {
       db = request.result;
+      dbInitPromise = null;
       resolve(db);
     };
 
@@ -37,6 +47,8 @@ export function initDB(): Promise<IDBDatabase> {
       }
     };
   });
+
+  return dbInitPromise;
 }
 
 export async function saveRecord(record: WorkRecord): Promise<void> {
@@ -44,8 +56,14 @@ export async function saveRecord(record: WorkRecord): Promise<void> {
   return new Promise((resolve, reject) => {
     const transaction = database.transaction(['records'], 'readwrite');
     const store = transaction.objectStore('records');
-    const request = store.put(record);
-    request.onerror = () => reject(request.error);
+    
+    const recordToSave = JSON.parse(JSON.stringify(record));
+    const request = store.put(recordToSave);
+    
+    request.onerror = () => {
+      console.error('保存记录失败:', request.error);
+      reject(request.error);
+    };
     request.onsuccess = () => resolve();
   });
 }
@@ -117,13 +135,17 @@ export async function deleteCluster(id: string): Promise<void> {
 }
 
 export function saveConfig(config: UserConfig): void {
-  localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  try {
+    localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+  } catch (e) {
+    console.error('保存配置失败:', e);
+  }
 }
 
 export function getConfig(): UserConfig | null {
-  const data = localStorage.getItem(CONFIG_KEY);
-  if (!data) return null;
   try {
+    const data = localStorage.getItem(CONFIG_KEY);
+    if (!data) return null;
     return JSON.parse(data);
   } catch {
     return null;
@@ -159,14 +181,14 @@ export async function importData(data: { records: WorkRecord[]; clusters: Cluste
   await Promise.all([
     ...data.records.map(record =>
       new Promise<void>((resolve, reject) => {
-        const request = transaction.objectStore('records').put(record);
+        const request = transaction.objectStore('records').put(JSON.parse(JSON.stringify(record)));
         request.onerror = () => reject(request.error);
         request.onsuccess = () => resolve();
       })
     ),
     ...data.clusters.map(cluster =>
       new Promise<void>((resolve, reject) => {
-        const request = transaction.objectStore('clusters').put(cluster);
+        const request = transaction.objectStore('clusters').put(JSON.parse(JSON.stringify(cluster)));
         request.onerror = () => reject(request.error);
         request.onsuccess = () => resolve();
       })
