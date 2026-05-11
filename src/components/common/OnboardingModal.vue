@@ -61,60 +61,60 @@ function skip() {
     <Transition name="modal">
       <div
         v-if="modelValue"
-        class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
+        class="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4"
       >
         <div
-          class="absolute inset-0 bg-black/50 backdrop-blur-sm"
+          class="absolute inset-0 bg-ink/50 backdrop-blur-sm"
           @click="skip"
         />
-        <div class="relative w-full sm:max-w-md sm:rounded-2xl bg-white shadow-xl overflow-hidden animate-slide-up">
+        <div class="relative w-full sm:max-w-md bg-white shadow-xl overflow-hidden rounded-3xl animate-float-in">
           <div class="p-6 sm:p-8">
             <Transition name="fade" mode="out-in">
               <div v-if="step === 'welcome'" key="welcome">
                 <div class="text-center mb-8">
-                  <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-gradient-to-br from-primary to-secondary flex items-center justify-center">
+                  <div class="w-16 h-16 mx-auto mb-4 rounded-2xl bg-accent flex items-center justify-center">
                     <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   </div>
-                  <h2 class="text-2xl font-bold text-gray-900 mb-2">欢迎使用时间去哪了</h2>
-                  <p class="text-gray-500">用最自然的方式记录你的工作时间</p>
+                  <h2 class="text-2xl font-bold text-ink mb-2 font-display">欢迎使用时间去哪了</h2>
+                  <p class="text-ink-muted">用最自然的方式记录你的工作时间</p>
                 </div>
 
                 <div class="space-y-4 mb-8">
                   <div class="flex items-start gap-3">
-                    <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
+                      <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
                       </svg>
                     </div>
                     <div>
-                      <h3 class="font-medium text-gray-900">说话即记录</h3>
-                      <p class="text-sm text-gray-500">用语音描述你的工作，系统自动识别时间和内容</p>
+                      <h3 class="font-medium text-ink">说话即记录</h3>
+                      <p class="text-sm text-ink-muted">用语音描述你的工作，系统自动识别时间和内容</p>
                     </div>
                   </div>
 
                   <div class="flex items-start gap-3">
-                    <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div class="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
+                      <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                       </svg>
                     </div>
                     <div>
-                      <h3 class="font-medium text-gray-900">智能分类</h3>
-                      <p class="text-sm text-gray-500">AI 自动学习你的工作模式，智能归类统计</p>
+                      <h3 class="font-medium text-ink">智能分类</h3>
+                      <p class="text-sm text-ink-muted">AI 自动学习你的工作模式，智能归类统计</p>
                     </div>
                   </div>
 
                   <div class="flex items-start gap-3">
-                    <div class="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <svg class="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    <div class="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center flex-shrink-0">
+                      <svg class="w-4 h-4 text-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h2a2 2 0 01-2-2z" />
                       </svg>
                     </div>
                     <div>
-                      <h3 class="font-medium text-gray-900">可视化统计</h3>
-                      <p class="text-sm text-gray-500">清晰了解你的时间都花在了哪里</p>
+                      <h3 class="font-medium text-ink">可视化统计</h3>
+                      <p class="text-sm text-ink-muted">清晰了解你的时间都花在了哪里</p>
                     </div>
                   </div>
                 </div>
@@ -129,20 +129,20 @@ function skip() {
 
               <div v-else key="categories">
                 <div class="text-center mb-6">
-                  <h2 class="text-xl font-bold text-gray-900 mb-2">告诉我你都做哪些工作</h2>
-                  <p class="text-sm text-gray-500">用简单的词语描述你的工作类型，比如：项目A、客户B、日常事务等</p>
+                  <h2 class="text-xl font-bold text-ink mb-2 font-display">告诉我你都做哪些工作</h2>
+                  <p class="text-sm text-ink-muted">用简单的词语描述你的工作类型，比如：项目A、客户B、日常事务等</p>
                 </div>
 
                 <div class="space-y-3 mb-4">
                   <div
                     v-for="(category, index) in categories"
                     :key="index"
-                    class="flex items-center justify-between px-4 py-3 bg-gray-50 rounded-lg animate-fade-in"
+                    class="flex items-center justify-between px-4 py-3 bg-paper-2 rounded-xl animate-scale-in"
                   >
-                    <span class="text-gray-900">{{ category }}</span>
+                    <span class="text-ink">{{ category }}</span>
                     <button
                       @click="removeCategory(index)"
-                      class="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                      class="p-1 text-ink-faint hover:text-error transition-colors"
                     >
                       <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
@@ -179,7 +179,7 @@ function skip() {
                     :disabled="!canProceed || isLoading"
                     :class="[
                       'flex-1 btn py-3',
-                      canProceed ? 'btn-primary' : 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      canProceed ? 'btn-primary' : 'bg-paper-2 text-ink-faint cursor-not-allowed'
                     ]"
                   >
                     {{ isLoading ? '保存中...' : '完成设置' }}
@@ -188,7 +188,7 @@ function skip() {
 
                 <button
                   @click="skip"
-                  class="w-full mt-3 text-sm text-gray-400 hover:text-gray-600 transition-colors"
+                  class="w-full mt-3 text-sm text-ink-faint hover:text-ink-muted transition-colors"
                 >
                   稍后再说
                 </button>
@@ -200,15 +200,3 @@ function skip() {
     </Transition>
   </Teleport>
 </template>
-
-<style scoped>
-.modal-enter-active,
-.modal-leave-active {
-  transition: opacity 0.3s ease;
-}
-
-.modal-enter-from,
-.modal-leave-to {
-  opacity: 0;
-}
-</style>

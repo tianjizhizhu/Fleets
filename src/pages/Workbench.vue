@@ -63,7 +63,8 @@ const workModeChartOption = computed(() => ({
     right: 10,
     top: 'center',
     textStyle: {
-      fontSize: 12
+      fontSize: 12,
+      color: '#1a1a1a'
     }
   },
   series: [
@@ -92,7 +93,7 @@ const workModeChartOption = computed(() => ({
         : [{ name: '暂无数据', value: 1 }]
     }
   ],
-  color: ['#10b981', '#3b82f6', '#f59e0b']
+  color: ['#2d6a4f', '#ff6b35', '#c17817']
 }));
 
 const pieOption = computed(() => ({
@@ -105,7 +106,8 @@ const pieOption = computed(() => ({
     right: 10,
     top: 'center',
     textStyle: {
-      fontSize: 12
+      fontSize: 12,
+      color: '#1a1a1a'
     }
   },
   series: [
@@ -134,7 +136,7 @@ const pieOption = computed(() => ({
         : [{ name: '暂无数据', value: 1 }]
     }
   ],
-  color: ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444']
+  color: ['#ff6b35', '#ff8c61', '#e55a2b', '#2d6a4f', '#c17817']
 }));
 
 const lineOption = computed(() => {
@@ -156,14 +158,31 @@ const lineOption = computed(() => {
       boundaryGap: false,
       data: dates.length > 0 ? dates : ['暂无数据'],
       axisLabel: {
-        fontSize: 10
+        fontSize: 10,
+        color: '#666666'
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#e8e6df'
+        }
       }
     },
     yAxis: {
       type: 'value',
       axisLabel: {
         formatter: (value: number) => `${value}m`,
-        fontSize: 10
+        fontSize: 10,
+        color: '#666666'
+      },
+      axisLine: {
+        lineStyle: {
+          color: '#e8e6df'
+        }
+      },
+      splitLine: {
+        lineStyle: {
+          color: '#f0efe8'
+        }
       }
     },
     series: [
@@ -176,7 +195,7 @@ const lineOption = computed(() => {
         },
         data: durations.length > 0 ? durations : [0],
         itemStyle: {
-          color: '#6366f1'
+          color: '#ff6b35'
         },
         areaColor: {
           type: 'linear',
@@ -185,8 +204,8 @@ const lineOption = computed(() => {
           x2: 0,
           y2: 1,
           colorStops: [
-            { offset: 0, color: 'rgba(99, 102, 241, 0.3)' },
-            { offset: 1, color: 'rgba(99, 102, 241, 0)' }
+            { offset: 0, color: 'rgba(255, 107, 53, 0.3)' },
+            { offset: 1, color: 'rgba(255, 107, 53, 0)' }
           ]
         }
       }
@@ -248,59 +267,59 @@ watch(() => stats.value, () => {
 </script>
 
 <template>
-  <div class="page-content py-4">
-    <div class="grid grid-cols-2 gap-3 mb-6">
-      <div class="card p-4 text-center">
-        <div class="text-2xl font-bold text-primary mb-1">
+  <div class="page-content py-8">
+    <div class="grid grid-cols-2 gap-4 mb-7">
+      <div class="card p-5 text-center">
+        <div class="text-3xl font-bold text-accent mb-1.5 font-display">
           {{ formatDuration(totalDuration) }}
         </div>
-        <div class="text-sm text-gray-500">总工作时长</div>
+        <div class="text-sm text-ink-muted">总工作时长</div>
       </div>
-      <div class="card p-4 text-center">
-        <div class="text-2xl font-bold text-secondary mb-1">
+      <div class="card p-5 text-center">
+        <div class="text-3xl font-bold text-ink mb-1.5 font-display">
           {{ totalRecords }}
         </div>
-        <div class="text-sm text-gray-500">工作记录数</div>
+        <div class="text-sm text-ink-muted">工作记录数</div>
       </div>
     </div>
 
-    <div class="card p-4 mb-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="font-medium text-gray-900">工作项目分布</h3>
+    <div class="card p-5 mb-7">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-medium text-ink font-display">工作项目分布</h3>
       </div>
       <div ref="pieChartRef" class="w-full h-64" />
     </div>
 
-    <div class="card p-4 mb-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="font-medium text-gray-900">工作方式分布</h3>
+    <div class="card p-5 mb-7">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-medium text-ink font-display">工作方式分布</h3>
       </div>
       <div ref="workModeChartRef" class="w-full h-64" />
     </div>
 
-    <div class="card p-4 mb-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="font-medium text-gray-900">耗时趋势</h3>
+    <div class="card p-5 mb-7">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-medium text-ink font-display">耗时趋势</h3>
       </div>
       <div ref="lineChartRef" class="w-full h-48" />
     </div>
 
-    <div class="card p-4 mb-6">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="font-medium text-gray-900">聚类统计</h3>
+    <div class="card p-5 mb-7">
+      <div class="flex items-center justify-between mb-5">
+        <h3 class="font-medium text-ink font-display">聚类统计</h3>
         <button
           v-if="recordStore.annotatedRecords.length >= 5"
           @click="runClusterAnalysis"
           :disabled="clusterStore.isLoading"
-          class="text-sm text-primary hover:text-primary-dark"
+          class="text-sm text-accent hover:text-accent-dark transition-colors"
         >
           {{ clusterStore.isLoading ? '分析中...' : '重新分析' }}
         </button>
       </div>
 
       <div v-if="clusterStore.clusters.length === 0" class="text-center py-8">
-        <p class="text-gray-500 mb-2">暂无聚类数据</p>
-        <p class="text-sm text-gray-400">
+        <p class="text-ink-muted mb-2">暂无聚类数据</p>
+        <p class="text-sm text-ink-faint">
           标注更多记录后，系统将自动分析工作模式
         </p>
       </div>
@@ -309,19 +328,19 @@ watch(() => stats.value, () => {
         <div
           v-for="cluster in clusterStore.clusters.slice(0, 10)"
           :key="cluster.id"
-          class="flex items-center justify-between p-3 bg-gray-50 rounded-lg"
+          class="flex items-center justify-between p-4 bg-paper-2 rounded-xl"
         >
           <div>
-            <div class="font-medium text-gray-900">{{ cluster.name }}</div>
-            <div class="text-xs text-gray-500">
+            <div class="font-medium text-ink">{{ cluster.name }}</div>
+            <div class="text-xs text-ink-muted">
               {{ cluster.recordIds.length }} 条记录
             </div>
           </div>
           <div class="text-right">
-            <div class="font-medium text-primary">
+            <div class="font-medium text-accent">
               {{ formatDuration(cluster.totalDuration) }}
             </div>
-            <div class="text-xs text-gray-400">
+            <div class="text-xs text-ink-faint">
               {{ Math.round((cluster.totalDuration / totalDuration) * 100) || 0 }}%
             </div>
           </div>
@@ -329,17 +348,17 @@ watch(() => stats.value, () => {
       </div>
     </div>
 
-    <div class="card p-4">
-      <h3 class="font-medium text-gray-900 mb-4">项目明细</h3>
+    <div class="card p-5">
+      <h3 class="font-medium text-ink font-display mb-5">项目明细</h3>
 
       <div v-if="categoryChartData.length === 0" class="text-center py-8">
-        <p class="text-gray-500 mb-2">暂无分类数据</p>
-        <p class="text-sm text-gray-400">
+        <p class="text-ink-muted mb-2">暂无分类数据</p>
+        <p class="text-sm text-ink-faint">
           标注记录后即可查看分类统计
         </p>
       </div>
 
-      <div v-else class="space-y-3">
+      <div v-else class="space-y-4">
         <div
           v-for="(stat, index) in stats.categoryStats"
           :key="stat.categoryId"
@@ -347,24 +366,24 @@ watch(() => stats.value, () => {
         >
           <div
             class="w-3 h-3 rounded-full"
-            :style="{ backgroundColor: ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'][index] }"
+            :style="{ backgroundColor: ['#ff6b35', '#ff8c61', '#e55a2b', '#2d6a4f', '#c17817'][index % 5] }"
           />
           <div class="flex-1">
-            <div class="flex items-center justify-between mb-1">
-              <span class="text-sm font-medium text-gray-900">{{ stat.categoryName }}</span>
-              <span class="text-sm text-gray-500">{{ formatDuration(stat.totalDuration) }}</span>
+            <div class="flex items-center justify-between mb-1.5">
+              <span class="text-sm font-medium text-ink">{{ stat.categoryName }}</span>
+              <span class="text-sm text-ink-muted">{{ formatDuration(stat.totalDuration) }}</span>
             </div>
-            <div class="h-2 bg-gray-100 rounded-full overflow-hidden">
+            <div class="h-2 bg-paper-2 rounded-full overflow-hidden">
               <div
-                class="h-full rounded-full transition-all duration-500"
+                class="h-full rounded-full transition-all duration-700"
                 :style="{
                   width: `${stat.percentage}%`,
-                  backgroundColor: ['#6366f1', '#8b5cf6', '#10b981', '#f59e0b', '#ef4444'][index]
+                  backgroundColor: ['#ff6b35', '#ff8c61', '#e55a2b', '#2d6a4f', '#c17817'][index % 5]
                 }"
               />
             </div>
           </div>
-          <span class="text-xs text-gray-400 w-10 text-right">
+          <span class="text-xs text-ink-faint w-10 text-right">
             {{ stat.percentage }}%
           </span>
         </div>
