@@ -94,7 +94,7 @@ body {
   .input {
     @apply w-full px-4 py-3.5 rounded-xl border border-paper-3;
     @apply bg-white text-ink placeholder-ink-faint;
-    @apply focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent/50;
+    @apply focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent;
     @apply transition-all duration-300;
   }
 
@@ -107,7 +107,7 @@ body {
   }
 
   .tag-accent {
-    @apply bg-accent/10 text-accent;
+    @apply bg-orange-100 text-accent;
   }
 
   .tag-ink {
@@ -115,15 +115,15 @@ body {
   }
 
   .tag-success {
-    @apply bg-success/10 text-success;
+    @apply bg-green-100 text-success;
   }
 
   .tag-warning {
-    @apply bg-warning/10 text-warning;
+    @apply bg-amber-100 text-warning;
   }
 
   .tag-error {
-    @apply bg-error/10 text-error;
+    @apply bg-red-100 text-error;
   }
 
   .page-container {
